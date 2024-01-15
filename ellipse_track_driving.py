@@ -4,7 +4,7 @@
 
 import pygame
 from ellipse_path import path, inner, outer
-from basic_car import Car
+from improved_car import Car
 
 # Reorganise the boundary data as walls.
 walls = []
@@ -21,7 +21,7 @@ def main():
 	screen = pygame.display.set_mode((WIDTH, HEIGHT))
 	clock = pygame.time.Clock()
 
-	CAR_IMAGE = pygame.image.load('car.png')
+	CAR_IMAGE = pygame.image.load('pink_car.png')
 	CAR_IMAGE = pygame.transform.scale(CAR_IMAGE, (42, 20))
 
 	bg = pygame.Surface((WIDTH, HEIGHT))
