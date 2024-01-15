@@ -1,0 +1,184 @@
+# A class to contain an improved autonomous driving car - supports driving programs.
+
+import math
+from random import randint
+from xml.sax.handler import DTDHandler
+
+
+class Car:
+	def __init__(self, position, direction, speed, max_angle):
+		self.pos = position
+		self.dir = direction
+		self.max_angle = max_angle
+		self.decision_counter = 0
+		self.integral = 0
+		self.previous_error = 0
+		self.speed = speed
+		
+		self.rays = []
+		for angle in range(-60, 70, 60):
+			ray = Ray(self.pos, angle, 2000, 5)
+			self.rays.append(ray)
+			
+	def update_speed(self, dt, wall_proximity, time):
+		error = self.speed - wall_proximity
+		self.integral += error * dt
+		derivate = (error - self.previous_error) / dt
+		self.previous_error = error     
+	
+	def update(self, walls, track=None, time=1):
+		self.update_position()
+		self.update_rays(walls, time)
+		self.update_guidance(track)
+		
+		closest_distance = min(ray.distance for ray in self.rays)
+		if closest_distance < 20:
+			self.speed = 1
+		elif closest_distance > 70:
+			self.speed = 3
+		else :
+		    self.speed = 2
+		print(f"Closest distance to barrier: {closest_distance:.2f}")
+
+	def update_position(self):
+		self.pos = self.get_position(self.dir, self.speed)
+
+	def update_rays(self, walls, time):
+		for ray in self.rays:
+			ray.update(self.pos, self.dir, walls, time)
+
+	def update_guidance(self, target):
+		min_ray, max_ray = self.find_min_max_rays()
+		if self.rays[min_ray].distance < 80:
+			self.evasive_action(max_ray)
+		else:
+			self.decision_counter_check(target)
+		
+	def find_min_max_rays(self):
+		max_distance, max_index = self.rays[0].distance, 0
+		min_distance, min_index = self.rays[0].distance, 0
+		for index, ray in enumerate(self.rays):
+			if ray.distance >= max_distance:
+				max_distance, max_index = ray.distance, index
+			if ray.distance <= min_distance:
+				min_distance, min_index = ray.distance, index
+		return min_index, max_index
+
+	def evasive_action(self, max_ray):
+		if max_ray == 0:
+			self.dir += randint(-self.max_angle, 0)
+		elif max_ray == 1:
+			if self.rays[0].distance > self.rays[2].distance:
+				self.dir += randint(-self.max_angle, 0)
+			else:
+				self.dir += randint(0, self.max_angle)
+		else:
+			self.dir += randint(0, self.max_angle)
+
+	def decision_counter_check(self, target):
+		if self.decision_counter >= 10:
+			if target:
+				self.turn_towards_target(target)
+			else:
+				self.dir += randint(-self.max_angle, self.max_angle)
+			self.decision_counter = 0
+		else:
+			self.decision_counter += 1
+
+	def turn_towards_target(self, target):
+		angle = self.get_angle_to_target(target)
+		# The angle can go both ways +ve or -ve.
+		target_distance = math.dist(self.pos, target)
+		left = math.dist(self.get_position(self.dir-angle, target_distance), target)
+		right = math.dist(self.get_position(self.dir+angle, target_distance), target)
+		if right < left:
+			self.dir += randint(0, self.max_angle)
+		else:
+			self.dir += randint(-self.max_angle, 0)
+
+	def get_angle_to_target(self, target):
+		A, B, C = self.pos, self.get_position(self.dir, self.speed), target
+		AB, AC = (B[0]-A[0], B[1]-A[1]), (C[0]-A[0], C[1]-A[1])
+		AB_m, AC_m = (AB[0]**2 + AB[1]**2)**0.5, (AC[0]**2 + AC[1]**2)**0.5
+		temp = ((AB[0]*AC[0]) + (AB[1]*AC[1]))/(AB_m * AC_m)
+		angle_to_target = math.degrees(math.acos(temp))
+		return angle_to_target
+
+	def get_position(self, base_angle, length):
+		angle = base_angle * (math.pi / 180)
+		x = self.pos[0] + (length * math.cos(angle))
+		y = self.pos[1] + (length * math.sin(angle))
+		return (x,y)
+
+	def reset(self, position, direction):
+		self.pos = position
+		self.dir = direction
+
+
+class Ray:
+	def __init__(self, position, angle, max_length, speed):
+		self.pos = position
+		self.init_angle = angle
+		self.length = max_length
+		self.speed = speed
+		self.dir = None
+		self.terminus = None
+		self.distance = self.length
+
+	def update(self, point, direction, walls, time):
+		self.pos = point
+		self.update_direction(direction)
+		self.update_terminus(walls, time)
+
+	def update_direction(self, direction):
+		a = self.init_angle + direction
+		angle = math.radians(a)
+		self.dir = (math.cos(angle), math.sin(angle))
+	
+	def update_terminus(self, walls, time):
+		#x = self.pos[0] + (self.speed * time * math.cos(self.init_angle))
+		#y = self.pos[1] + (self.speed * time * math.sin(self.init_angle))
+		#self.pos = (x, y)
+		# Need to get the minimum intersection distance from the group of walls.
+		distance, min_terminus = self.length, None
+		for wall in walls:
+			x1, y1 = wall[0][0], wall[0][1]
+			x2, y2 = wall[1][0], wall[1][1]
+			x3, y3 = self.pos[0], self.pos[1]
+			x4, y4 = self.pos[0] + self.dir[0], self.pos[1] + self.dir[1]
+
+			divisor = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+			if divisor == 0:
+				# Line segment and ray are parallel, therefore no intersection.
+				continue
+
+			t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4)) / divisor
+			u = -((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3)) / divisor
+
+			# Check that the point is between the line segment start and end point.
+			# Check that the point is on the positive part of the ray (not backwards!).
+			if t >= 0 and t <= 1 and u > 0:
+				x_point = x1 + t * (x2 - x1)
+				y_point = y1 + t * (y2 - y1)
+				dist_check = math.dist(self.pos, (x_point, y_point))
+				if dist_check < distance:
+					distance = dist_check
+					min_terminus = (x_point, y_point)
+
+		if distance != self.length:
+			speed_adjustment = 1 / (distance / self.length)
+			self.speed *= speed_adjustment
+			self.distance = distance
+			self.terminus = min_terminus
+			return
+		
+
+		point_x = self.pos[0] + self.dir[0] * self.length
+		point_y = self.pos[1] + self.dir[1] * self.length
+		self.terminus = (point_x, point_y)
+		self.distance = self.length
+		def update_position(self, time):
+			x = self.pos[0] + (self.speed * time * math.cos(self.init_angle))
+			y = self.pos[1] + (self.speed * time * math.sin(self.init_angle))
+			self.pos = (x, y)
+			
