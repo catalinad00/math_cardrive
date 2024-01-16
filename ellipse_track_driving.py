@@ -1,6 +1,3 @@
-# Program to explore an autonomous car driving round an ellipse.
-
-# Video Walkthrough Link: https://www.youtube.com/watch?v=NbKCmxzS05k&feature=youtu.be
 
 import pygame
 from ellipse_path import path, inner, outer
