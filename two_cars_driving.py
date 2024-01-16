@@ -1,6 +1,4 @@
-# Program to explore an autonomous car driving round a track.
 
-# Video Walkthrough Link: XXXX
 
 import pygame
 from collections import deque
